@@ -1,9 +1,9 @@
 fastapi
 uvicorn
 python-multipart
-pysubs2==1.8.1
-ctranslate2>=4.8.0
+pysubs2
 transformers
+torch
 argostranslate>=1.11.0
 spacy>=3.8.0
 pydantic
