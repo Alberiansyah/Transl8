@@ -6,11 +6,15 @@ Context-aware subtitle translation web app. Translates SRT/ASS/SSA/VTT files usi
 
 - **NLLB-200-distilled-1.3B** — Meta's neural machine translation (200 languages)
 - **CPU + GPU** — auto-detect CUDA, fallback to CPU
+- **Multi-file batch upload** — translate multiple files in one go, download as ZIP
 - **ASS/SSA tag preservation** — italic, bold, positioning tags survive translation
 - **Auto-close tags** — unclosed `{\i1}` gets `{\i0}` appended automatically
 - **Context batch** — groups subtitle lines for coherent NMT translation
 - **Glossary** — define terms for consistent translation
-- **Progress tracking** — real-time elapsed time, lines/s, batch progress
+- **Cancel translation** — stop in-progress translation between batches
+- **Translation history** — SQLite-backed, re-download or delete past translations
+- **Progress tracking** — elapsed time, ETA, lines/s, batch progress
+- **Settings guide** — collapsible guide explaining Engine Batch, Num Beams, Context Batch
 - **Original filename** on download
 
 ## Quick Start
@@ -26,12 +30,14 @@ Open `http://localhost:8000`
 
 ### UI Settings
 
-| Setting | CPU Default | GPU Default | Description |
-|---------|-------------|-------------|-------------|
-| Device | Auto | Auto | CPU / GPU (CUDA) / Auto |
-| Num Beams | 2 | 2 | Search width (2=fast, 4=quality) |
-| Engine Batch | 8 | 8 | Lines per NMT batch |
-| Context Batch | 15 | 15 | Lines per context group |
+| Setting | Default | Options | Description |
+|---------|---------|---------|-------------|
+| Device | Auto | Auto / CPU / GPU (CUDA) | Hardware selection |
+| Num Beams | 2 (Fast) | 2 / 3 / 4 | Search width per line |
+| Engine Batch | 8 (Default) | 4 / 8 / 16 / 32 / 64 | Lines per NMT model call |
+| Context Batch | 15 | 5–50 | Lines grouped for context |
+
+> **Engine Batch note**: For subtitle text (short sequences), 4–8 is fastest. Larger batches (16–64) are only faster for long-form text (documents, articles) on GPUs with 12GB+ VRAM.
 
 ### Environment Variables
 
@@ -60,15 +66,32 @@ Or edit `app/config.py` directly.
 | SubRip | `.srt` | Plain text |
 | WebVTT | `.vtt` | Plain text |
 
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/translate` | POST | Translate single file |
+| `/api/translate-batch` | POST | Translate multiple files |
+| `/api/progress/{id}` | GET | Translation progress (poll) |
+| `/api/cancel/{id}` | POST | Cancel in-progress translation |
+| `/api/download/{id}` | GET | Download single translated file |
+| `/api/download-batch/{id}` | GET | Download batch as ZIP |
+| `/api/languages` | GET | Supported language list |
+| `/api/device-info` | GET | CUDA/GPU detection |
+| `/api/history` | GET | Translation history (50 latest) |
+| `/api/history/{id}/download` | GET | Re-download from history |
+| `/api/history/{id}` | DELETE | Delete history entry + files |
+
 ## Project Structure
 
 ```
 Translate/
   app/
-    main.py              # FastAPI entry point
+    main.py              # FastAPI entry point, startup init
     config.py            # Model config, language maps
+    db.py                # SQLite history layer (init, CRUD)
     api/
-      routes.py          # API endpoints
+      routes.py          # REST endpoints
       models.py          # Pydantic models
     translator/
       nllb_engine.py     # NLLB-200 translation engine
@@ -77,12 +100,15 @@ Translate/
       context_batcher.py # Context-aware batching
       glossary.py        # Custom glossary
       argos_engine.py    # Argos Translate fallback
-      ner.py             # Named entity recognition
-      postprocess.py     # Post-processing
+      ner.py             # Named entity recognition (disabled)
+      postprocess.py     # Post-processing (unused)
     static/
       index.html         # Web UI
       style.css          # Dark theme
       app.js             # Frontend logic
+  data.db                # SQLite database (auto-created)
+  uploads/               # Uploaded subtitle files
+  output/                # Translated output files
   run.py                 # python run.py → localhost:8000
   requirements.txt
   sample_en.srt          # Sample file for testing
@@ -94,7 +120,7 @@ Translate/
 - **Backend**: FastAPI + uvicorn
 - **Subtitle parsing**: pysubs2
 - **GPU acceleration**: PyTorch + CUDA (optional)
-- **Fallback**: Argos Translate
+- **History**: SQLite (built-in, no extra dependency)
 
 ## License
 
