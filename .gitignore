@@ -2,5 +2,6 @@ __pycache__/
 *.pyc
 uploads/
 output/
+data.db
 *.egg-info/
 .env

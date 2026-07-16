@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import logging
+import threading
 from typing import Callable
 from dataclasses import dataclass, field
 
@@ -19,10 +20,12 @@ class TranslationProgress:
     completed_batches: int = 0
     status: str = "idle"
     error: str | None = None
-    elapsed_seconds: float = 0.0
     last_batch_seconds: float = 0.0
     device_used: str = "cpu"
-    lines_per_second: float = 0.0
+    completed_lines: int = 0
+    total_files: int = 1
+    completed_files: int = 0
+    current_file: str = ""
 
     @property
     def percent(self) -> float:
@@ -48,6 +51,7 @@ class TranslationPipeline:
         engine_batch_size: int = 16,
         device: str = "auto",
         on_progress: Callable[[TranslationProgress], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> list[str]:
         self.progress = TranslationProgress()
         self.batcher.batch_size = batch_size
@@ -57,7 +61,6 @@ class TranslationPipeline:
             return []
 
         original_texts = [l.text for l in lines]
-        total_lines = len(original_texts)
 
         self.progress.status = "translating"
         if on_progress:
@@ -67,11 +70,14 @@ class TranslationPipeline:
         self.progress.total_batches = len(batches)
 
         all_translated = []
-        total_start = time.perf_counter()
-        total_translate_time = 0.0
-        total_translated_lines = 0
 
         for batch in batches:
+            if cancel_event and cancel_event.is_set():
+                self.progress.status = "cancelled"
+                if on_progress:
+                    on_progress(self.progress)
+                return original_texts[:len(all_translated)] + [""] * (len(original_texts) - len(all_translated))
+
             batch_start = time.perf_counter()
             try:
                 translated = self.nllb.translate_batch(
@@ -80,24 +86,16 @@ class TranslationPipeline:
                     device=device,
                 )
                 all_translated.extend(translated)
-                total_translated_lines += len(translated)
             except Exception as e:
                 logger.error(f"Batch {batch.batch_index} failed: {e}")
                 all_translated.extend(batch.original_texts)
 
             batch_elapsed = time.perf_counter() - batch_start
-            total_translate_time += batch_elapsed
-            total_elapsed = time.perf_counter() - total_start
 
             self.progress.completed_batches += 1
+            self.progress.completed_lines = len(all_translated)
             self.progress.last_batch_seconds = round(batch_elapsed, 2)
-            self.progress.elapsed_seconds = round(total_elapsed, 2)
             self.progress.device_used = self.nllb.device
-
-            if total_translated_lines > 0:
-                self.progress.lines_per_second = round(
-                    total_translated_lines / total_translate_time, 1
-                )
 
             if on_progress:
                 on_progress(self.progress)

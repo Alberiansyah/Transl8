@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.api.routes import router
+from app.db import init_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,6 +25,11 @@ app.include_router(router)
 
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.on_event("startup")
+def startup():
+    init_db()
 
 
 @app.get("/")

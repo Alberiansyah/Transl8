@@ -10,7 +10,7 @@
     <div class="container">
         <header>
             <h1>Subtitle Translator</h1>
-            <p class="subtitle">Context-aware translation powered by NLLB-200 + spaCy NER</p>
+            <p class="subtitle">Context-aware translation powered by NLLB-200 (Meta)</p>
         </header>
 
         <div class="main-grid">
@@ -19,10 +19,12 @@
 
                 <div class="drop-zone" id="dropZone">
                     <div class="drop-icon">📁</div>
-                    <p>Drop subtitle file here</p>
-                    <p class="small">or click to browse</p>
-                    <input type="file" id="fileInput" accept=".srt,.ass,.ssa,.vtt" hidden>
+                    <p>Drop subtitle files here</p>
+                    <p class="small">or click to browse (multi-select supported)</p>
+                    <input type="file" id="fileInput" accept=".srt,.ass,.ssa,.vtt" multiple hidden>
                 </div>
+
+                <div class="file-list" id="fileList"></div>
 
                 <div class="file-info" id="fileInfo" style="display:none">
                     <span class="filename" id="fileName"></span>
@@ -57,34 +59,65 @@
 
                 <div class="settings-info" id="settingsInfo">
                     <span class="settings-label">Recommended:</span>
-                    <span id="settingsSummary">Num Beams: 3 | Engine Batch: 16 | Context: 15</span>
+                    <span id="settingsSummary">Num Beams: 2 (Fast) | Engine Batch: 8 (Default) | Context: 15</span>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group half">
                         <label for="numBeams">Num Beams</label>
                         <select id="numBeams">
-                            <option value="2">2 (Fast)</option>
-                            <option value="3" selected>3 (Balanced)</option>
-                            <option value="4">4 (Quality)</option>
+                            <option value="2" title="Fastest decoding. Slightly less accurate translations.">2 (Fast)</option>
+                            <option value="3" selected title="Best quality/speed balance. Recommended for most use cases.">3 (Default)</option>
+                            <option value="4" title="Highest accuracy. ~40% slower. Use for critical/professional translations.">4 (Quality)</option>
                         </select>
                     </div>
                     <div class="form-group half">
                         <label for="engineBatch">Engine Batch</label>
                         <select id="engineBatch">
-                            <option value="8">8 (Light)</option>
-                            <option value="16" selected>16 (Default)</option>
-                            <option value="32">32 (Heavy)</option>
-                            <option value="64">64 (Max)</option>
+                            <option value="4" title="Fastest. Best for subtitle text on any GPU. Minimal padding waste.">4 (Fast)</option>
+                            <option value="8" selected title="Default. Best balance for subtitle translation. Recommended.">8 (Default)</option>
+                            <option value="16" title="For longer text (30+ tokens/line). Needs 12GB+ GPU for best results.">16 (Medium)</option>
+                            <option value="32" title="For documents/articles. Needs 12GB+ GPU. Slower with short subtitle text.">32 (Heavy)</option>
+                            <option value="64" title="For large documents only. Needs 24GB+ GPU. Do NOT use for subtitles.">64 (Max)</option>
                         </select>
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group half">
                         <label for="batchSize">Context Batch</label>
-                        <input type="number" id="batchSize" value="15" min="5" max="50">
+                        <input type="number" id="batchSize" value="15" min="5" max="50" title="Number of lines grouped together for context. 15 is recommended. Lower = faster but less context between lines.">
                     </div>
                     <div class="form-group half"></div>
+                </div>
+
+                <div class="settings-guide">
+                    <button class="guide-toggle" type="button">
+                        📖 Settings Guide <span class="toggle-icon">▸</span>
+                    </button>
+                    <div class="guide-content" id="guideContent" style="display:none">
+                        <h3>⚙️ Engine Batch <small>(how many lines per model call)</small></h3>
+                        <table>
+                            <tr><td>4 Fast</td><td>Subtitle text, any GPU — fastest, minimal padding waste</td></tr>
+                            <tr><td>8 Default</td><td>Subtitle text, all GPUs — best balance, recommended</td></tr>
+                            <tr><td>16 Medium</td><td>Longer text (30+ tokens/line), needs 12GB+ GPU</td></tr>
+                            <tr><td>32 Heavy</td><td>Documents/articles, needs 12GB+ GPU, slower for subtitles</td></tr>
+                            <tr><td>64 Max</td><td>Large documents only, needs 24GB+ GPU, do NOT use for subtitles</td></tr>
+                        </table>
+
+                        <h3>🔍 Num Beams <small>(search quality per line)</small></h3>
+                        <table>
+                            <tr><td>2 Fast</td><td>Fastest decoding, slightly less accurate</td></tr>
+                            <tr><td>3 Default</td><td>Quality/speed balance — recommended for most use cases</td></tr>
+                            <tr><td>4 Quality</td><td>Highest accuracy, ~40% slower — for critical translations</td></tr>
+                        </table>
+
+                        <h3>📦 Context Batch <small>(lines grouped for context)</small></h3>
+                        <table>
+                            <tr><td>5 – 10</td><td>Faster, less context between lines</td></tr>
+                            <tr><td>15 Default</td><td>Balance of context & speed — recommended</td></tr>
+                            <tr><td>20 – 50</td><td>More context, slower — for complex dialogue</td></tr>
+                        </table>
+                    </div>
                 </div>
 
                 <button class="btn btn-primary" id="translateBtn" disabled>
@@ -111,6 +144,10 @@
                         <span class="value" id="batchInfo">0 / 0</span>
                     </div>
                     <div class="detail-item">
+                        <span class="label">Lines:</span>
+                        <span class="value" id="linesInfo">0 / 0</span>
+                    </div>
+                    <div class="detail-item">
                         <span class="label">Time:</span>
                         <span class="value" id="elapsedTime">0.0s</span>
                     </div>
@@ -118,12 +155,30 @@
                         <span class="label">Speed:</span>
                         <span class="value" id="speedInfo">- lines/s</span>
                     </div>
+                    <div class="detail-item">
+                        <span class="label">ETA:</span>
+                        <span class="value" id="etaInfo">-</span>
+                    </div>
                 </div>
 
                 <div class="progress-actions">
+                    <button class="btn btn-danger" id="cancelBtn" style="display:none">
+                        Cancel Translation
+                    </button>
                     <button class="btn btn-secondary" id="downloadBtn" style="display:none">
                         Download Translated File
                     </button>
+                </div>
+            </div>
+
+            <div class="panel history-panel" id="historyPanel">
+                <h2>
+                    Translation History
+                    <button class="guide-toggle" id="historyToggle" type="button">
+                        <span class="toggle-icon">▸</span>
+                    </button>
+                </h2>
+                <div class="history-list" id="historyList" style="display:none">
                 </div>
             </div>
 
@@ -142,7 +197,7 @@
         </div>
 
         <footer>
-            <p>NLLB-200 (Meta) + Argos Translate | CPU + GPU Support</p>
+            <p>NLLB-200 (Meta) | CPU + GPU Support</p>
         </footer>
     </div>
 
